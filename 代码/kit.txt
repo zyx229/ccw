@@ -1,0 +1,758 @@
+// ==UserScript==
+// @name         VerveSync Kit
+// @version
+// @description  What is safety?
+// @author
+// @match        https://www.ccw.site/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=ccw.site
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    const orig = Function.prototype.bind;
+    Function.prototype.bind = function(self2, ...args) {
+        if (self2?.runtime && self2) {
+            window.vm = self2;
+            Function.prototype.bind = orig;
+            initUI();
+        }
+        return orig.call(this, self2, ...args);
+    };
+
+    let isWeakNetworkEnabled = false;
+    let weakNetworkInterval = null;
+    let mySessionId = null;
+
+    const theme = {
+        primary: '#165DFF',
+        primaryDark: '#0E42D2',
+        secondary: '#4080FF',
+        background: '#121212',
+        backgroundLight: '#1E1E1E',
+        border: '#165DFF',
+        text: '#FFFFFF',
+        textDark: '#CCCCCC',
+        success: '#36D399',
+        error: '#F87272'
+    };
+
+    function checkMMOAvailable() {
+        if (!window.vm || !window.vm.runtime || !window.vm.runtime.ext_CCWMMO) {
+            return false;
+        }
+
+        try {
+            const result = window.vm.runtime.ext_CCWMMO.getClientList({FORMAT: "JSON"});
+            return result !== undefined && result !== null;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function showMessage(message, isError = false) {
+        const existingMessage = document.getElementById('vervesynckit-message');
+        if (existingMessage) {
+            existingMessage.remove();
+        }
+
+        const messageDiv = document.createElement('div');
+        messageDiv.id = 'vervesynckit-message';
+        messageDiv.textContent = message;
+        messageDiv.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${isError ? '#ff4444' : '#4CAF50'};
+            color: white;
+            padding: 12px 18px;
+            border-radius: 8px;
+            z-index: 10000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            transform: translateY(-20px);
+            opacity: 0;
+        `;
+
+        document.body.appendChild(messageDiv);
+
+        setTimeout(() => {
+            messageDiv.style.transform = 'translateY(0)';
+            messageDiv.style.opacity = '1';
+        }, 10);
+
+        setTimeout(() => {
+            messageDiv.style.transform = 'translateY(-20px)';
+            messageDiv.style.opacity = '0';
+            setTimeout(() => {
+                if (messageDiv.parentNode) {
+                    messageDiv.parentNode.removeChild(messageDiv);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    function generateRandomString() {
+        const length = Math.floor(Math.random() * 18) + 3;
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789~!@#$%^&*()_+-=[]{}|;:,.<>?`\'\"';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+    }
+
+    function toggleWeakNetwork() {
+        if (!checkMMOAvailable()) {
+            showMessage('未检测到MMO', true);
+            return;
+        }
+
+        isWeakNetworkEnabled = !isWeakNetworkEnabled;
+        const weakNetworkButton = document.getElementById('vervesynckit-weaknetwork-button');
+
+        if (isWeakNetworkEnabled) {
+            weakNetworkButton.textContent = '关闭弱网';
+            weakNetworkButton.style.background = `linear-gradient(135deg, ${theme.secondary}, ${theme.primary})`;
+
+            weakNetworkInterval = setInterval(() => {
+                if (window.vm && window.vm.runtime && window.vm.runtime.ext_CCWMMO) {
+                    try {
+                        const randomSessionId = generateRandomString();
+                        const randomName = generateRandomString();
+                        window.vm.runtime.ext_CCWMMO.setPlayerState({
+                            VALUE: randomSessionId,
+                            PLAYER_INFO: "sessionId"
+                        });
+                        window.vm.runtime.ext_CCWMMO.setPlayerState({
+                            VALUE: randomName,
+                            PLAYER_INFO: "name"
+                        });
+                    } catch (error) {
+                        console.error('弱网功能出错:', error);
+                    }
+                }
+            }, 1000);
+
+            showMessage('弱网已开启');
+        } else {
+            weakNetworkButton.textContent = '开启弱网';
+            weakNetworkButton.style.background = `linear-gradient(135deg, ${theme.primary}, ${theme.primaryDark})`;
+
+            if (weakNetworkInterval) {
+                clearInterval(weakNetworkInterval);
+                weakNetworkInterval = null;
+            }
+
+            showMessage('弱网已关闭');
+        }
+    }
+
+    function showCustomPrompt(title, placeholder, callback) {
+        const existingPrompt = document.getElementById('vervesynckit-custom-prompt');
+        if (existingPrompt) {
+            existingPrompt.remove();
+        }
+
+        const promptOverlay = document.createElement('div');
+        promptOverlay.id = 'vervesynckit-custom-prompt';
+        promptOverlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 10002;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        `;
+
+        const promptBox = document.createElement('div');
+        promptBox.style.cssText = `
+            background: linear-gradient(135deg, ${theme.background}, ${theme.backgroundLight});
+            border-radius: 15px;
+            padding: 30px;
+            width: 400px;
+            box-shadow: 0 15px 50px rgba(0,0,0,0.7);
+            transform: scale(0.9);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid ${theme.border};
+        `;
+
+        const promptTitle = document.createElement('h3');
+        promptTitle.textContent = title;
+        promptTitle.style.cssText = `
+            margin: 0 0 20px 0;
+            color: ${theme.text};
+            font-size: 20px;
+            font-weight: 600;
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        `;
+
+        const inputContainer = document.createElement('div');
+        inputContainer.style.cssText = `
+            margin-bottom: 25px;
+        `;
+
+        const inputField = document.createElement('input');
+        inputField.type = 'text';
+        inputField.placeholder = placeholder;
+        inputField.style.cssText = `
+            width: 100%;
+            padding: 15px;
+            border: 2px solid ${theme.border};
+            border-radius: 8px;
+            font-size: 16px;
+            background: ${theme.backgroundLight};
+            color: ${theme.text};
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        `;
+
+        inputField.addEventListener('focus', () => {
+            inputField.style.borderColor = theme.secondary;
+            inputField.style.boxShadow = `0 0 10px rgba(64, 128, 255, 0.5)`;
+        });
+
+        inputField.addEventListener('blur', () => {
+            inputField.style.borderColor = theme.border;
+            inputField.style.boxShadow = 'none';
+        });
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            gap: 15px;
+        `;
+
+        const confirmButton = document.createElement('button');
+        confirmButton.textContent = '确定';
+        confirmButton.style.cssText = `
+            background: linear-gradient(135deg, ${theme.primary}, ${theme.primaryDark});
+            color: ${theme.text};
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            flex: 1;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(22, 93, 255, 0.3);
+        `;
+
+        const cancelButton = document.createElement('button');
+        cancelButton.textContent = '取消';
+        cancelButton.style.cssText = `
+            background: linear-gradient(135deg, #333333, #555555);
+            color: ${theme.text};
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            flex: 1;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(51, 51, 51, 0.3);
+        `;
+
+        [confirmButton, cancelButton].forEach(button => {
+            button.addEventListener('mouseenter', () => {
+                button.style.transform = 'translateY(-2px)';
+                button.style.boxShadow = button === confirmButton ?
+                    `0 6px 20px rgba(22, 93, 255, 0.5)` :
+                    '0 6px 20px rgba(85, 85, 85, 0.5)';
+            });
+            button.addEventListener('mouseleave', () => {
+                button.style.transform = 'translateY(0)';
+                button.style.boxShadow = button === confirmButton ?
+                    `0 4px 15px rgba(22, 93, 255, 0.3)` :
+                    '0 4px 15px rgba(51, 51, 51, 0.3)';
+            });
+        });
+
+        confirmButton.addEventListener('click', () => {
+            const value = inputField.value.trim();
+            if (value) {
+                callback(value);
+            }
+            promptOverlay.remove();
+        });
+
+        cancelButton.addEventListener('click', () => {
+            promptOverlay.remove();
+        });
+
+        inputField.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const value = inputField.value.trim();
+                if (value) {
+                    callback(value);
+                }
+                promptOverlay.remove();
+            }
+        });
+
+        promptOverlay.addEventListener('click', (e) => {
+            if (e.target === promptOverlay) {
+                promptOverlay.remove();
+            }
+        });
+
+        inputContainer.appendChild(inputField);
+        buttonContainer.appendChild(confirmButton);
+        buttonContainer.appendChild(cancelButton);
+
+        promptBox.appendChild(promptTitle);
+        promptBox.appendChild(inputContainer);
+        promptBox.appendChild(buttonContainer);
+        promptOverlay.appendChild(promptBox);
+        document.body.appendChild(promptOverlay);
+
+        setTimeout(() => {
+            promptOverlay.style.opacity = '1';
+            promptBox.style.transform = 'scale(1)';
+            inputField.focus();
+        }, 10);
+    }
+
+    function initUI() {
+        const existingUI = document.getElementById('vervesynckit-ui');
+        if (existingUI) {
+            existingUI.remove();
+        }
+
+        const uiContainer = document.createElement('div');
+        uiContainer.id = 'vervesynckit-ui';
+        uiContainer.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        `;
+
+        const toggleButton = document.createElement('button');
+        toggleButton.id = 'vervesynckit-toggle';
+        toggleButton.textContent = 'VerveSync Kit';
+        toggleButton.style.cssText = `
+            background: linear-gradient(135deg, ${theme.primary}, ${theme.primaryDark});
+            color: ${theme.text};
+            border: none;
+            padding: 12px 18px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(22, 93, 255, 0.4);
+            margin-bottom: 5px;
+            transition: all 0.3s ease;
+            user-select: none;
+        `;
+
+        toggleButton.addEventListener('mouseenter', () => {
+            toggleButton.style.transform = 'translateY(-2px) scale(1.05)';
+            toggleButton.style.boxShadow = `0 6px 20px rgba(22, 93, 255, 0.6)`;
+        });
+
+        toggleButton.addEventListener('mouseleave', () => {
+            toggleButton.style.transform = 'translateY(0) scale(1)';
+            toggleButton.style.boxShadow = `0 4px 15px rgba(22, 93, 255, 0.4)`;
+        });
+
+        const panel = document.createElement('div');
+        panel.id = 'vervesynckit-panel';
+        panel.style.cssText = `
+            background: linear-gradient(135deg, ${theme.background}, ${theme.backgroundLight});
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+            width: 300px;
+            opacity: 0;
+            transform: scale(0.9) translateY(10px);
+            visibility: hidden;
+            border: 2px solid ${theme.border};
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: absolute;
+            bottom: 100%;
+            right: 0;
+            margin-bottom: 10px;
+        `;
+
+        const title = document.createElement('div');
+        title.id = 'vervesynckit-panel-title';
+        title.textContent = 'VerveSync Kit';
+        title.style.cssText = `
+            margin: 0 0 15px 0;
+            color: ${theme.text};
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+            padding-bottom: 15px;
+            border-bottom: 2px solid ${theme.border};
+            background: ${theme.background};
+            border-radius: 8px 8px 0 0;
+            user-select: none;
+        `;
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.cssText = `
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        `;
+
+        function createButton(text, color, onClick, id = null) {
+            const button = document.createElement('button');
+            button.textContent = text;
+            if (id) button.id = id;
+            button.style.cssText = `
+                background: linear-gradient(135deg, ${color}, ${darkenColor(color, 10)});
+                color: ${theme.text};
+                border: none;
+                padding: 10px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            `;
+
+            button.addEventListener('mouseenter', () => {
+                button.style.transform = 'translateY(-2px)';
+                button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+            });
+
+            button.addEventListener('mouseleave', () => {
+                button.style.transform = 'translateY(0)';
+                button.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+            });
+
+            button.addEventListener('click', (e) => {
+                e.stopPropagation();
+                button.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    button.style.transform = 'scale(1)';
+                    onClick();
+                }, 150);
+            });
+
+            return button;
+        }
+
+        function darkenColor(color, percent) {
+            const num = parseInt(color.replace("#", ""), 16);
+            const amt = Math.round(2.55 * percent);
+            const R = (num >> 16) - amt;
+            const G = (num >> 8 & 0x00FF) - amt;
+            const B = (num & 0x0000FF) - amt;
+            return "#" + (0x1000000 + (R < 0 ? 0 : R) * 0x10000 +
+                (G < 0 ? 0 : G) * 0x100 + (B < 0 ? 0 : B)).toString(16).slice(1);
+        }
+
+        const getInfoBtn = createButton('获取MMO信息', theme.primary, async () => {
+            if (!checkMMOAvailable()) {
+                showMessage('未检测到MMO', true);
+                return;
+            }
+
+            try {
+                const result = window.vm.runtime.ext_CCWMMO.getClientList({FORMAT: "JSON"});
+                showResultPanel('MMO信息', result);
+            } catch (error) {
+                showMessage('获取信息失败: ' + error.message, true);
+            }
+        });
+
+        const changeNameBtn = createButton('修改名称', theme.primary, () => {
+            if (!checkMMOAvailable()) {
+                showMessage('未检测到MMO', true);
+                return;
+            }
+
+            showCustomPrompt('修改MMO名称', '请输入新名称', (newName) => {
+                try {
+                    window.vm.runtime.ext_CCWMMO.setPlayerState({
+                        VALUE: newName.trim(),
+                        PLAYER_INFO: "name"
+                    });
+                    showMessage('MMO名称修改成功');
+                } catch (error) {
+                    showMessage('修改失败: ' + error.message, true);
+                }
+            });
+        });
+
+        const changeIdBtn = createButton('修改ID', theme.primary, () => {
+            if (!checkMMOAvailable()) {
+                showMessage('未检测到MMO', true);
+                return;
+            }
+
+            showCustomPrompt('修改MMO ID', '请输入新ID', (newId) => {
+                try {
+                    window.vm.runtime.ext_CCWMMO.setPlayerState({
+                        VALUE: newId.trim(),
+                        PLAYER_INFO: "sessionId"
+                    });
+                    showMessage('MMO ID修改成功');
+                } catch (error) {
+                    showMessage('修改失败: ' + error.message, true);
+                }
+            });
+        });
+
+        const weakNetworkBtn = createButton('开启弱网', theme.primary, toggleWeakNetwork, 'vervesynckit-weaknetwork-button');
+
+        buttonContainer.appendChild(getInfoBtn);
+        buttonContainer.appendChild(changeNameBtn);
+        buttonContainer.appendChild(changeIdBtn);
+        buttonContainer.appendChild(weakNetworkBtn);
+
+        panel.appendChild(title);
+        panel.appendChild(buttonContainer);
+        uiContainer.appendChild(toggleButton);
+        uiContainer.appendChild(panel);
+        document.body.appendChild(uiContainer);
+
+        let isPanelVisible = false;
+        toggleButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+
+            if (isPanelVisible) {
+                panel.style.opacity = '0';
+                panel.style.transform = 'scale(0.9) translateY(10px)';
+                panel.style.visibility = 'hidden';
+                toggleButton.textContent = 'VerveSync Kit';
+            } else {
+                panel.style.visibility = 'visible';
+                panel.style.opacity = '1';
+                panel.style.transform = 'scale(1) translateY(0)';
+                toggleButton.textContent = '收起面板';
+            }
+            isPanelVisible = !isPanelVisible;
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!uiContainer.contains(event.target) && isPanelVisible) {
+                panel.style.opacity = '0';
+                panel.style.transform = 'scale(0.9) translateY(10px)';
+                panel.style.visibility = 'hidden';
+                toggleButton.textContent = 'VerveSync Kit';
+                isPanelVisible = false;
+            }
+        });
+
+        panel.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+
+    function showResultPanel(title, content) {
+        const existingPanel = document.getElementById('vervesynckit-result');
+        if (existingPanel) {
+            existingPanel.remove();
+        }
+
+        const resultPanel = document.createElement('div');
+        resultPanel.id = 'vervesynckit-result';
+        resultPanel.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            background: linear-gradient(135deg, ${theme.background}, ${theme.backgroundLight});
+            border: 2px solid ${theme.border};
+            border-radius: 12px;
+            padding: 25px;
+            z-index: 10001;
+            max-width: 80%;
+            max-height: 80%;
+            overflow: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        `;
+
+        const resultTitle = document.createElement('h3');
+        resultTitle.textContent = title;
+        resultTitle.style.cssText = `
+            margin: 0 0 20px 0;
+            color: ${theme.text};
+            font-size: 20px;
+            font-weight: 600;
+            text-align: center;
+            border-bottom: 2px solid ${theme.border};
+            padding-bottom: 10px;
+        `;
+
+        const resultContent = document.createElement('pre');
+        resultContent.textContent = typeof content === 'object' ?
+            JSON.stringify(content, null, 2) : String(content);
+        resultContent.style.cssText = `
+            background: ${theme.backgroundLight};
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.4;
+            border: 1px solid #444444;
+            color: ${theme.textDark};
+        `;
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.cssText = `
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        `;
+
+        const copyButton = document.createElement('button');
+        copyButton.textContent = '复制';
+        copyButton.style.cssText = `
+            background: linear-gradient(135deg, ${theme.primary}, ${theme.primaryDark});
+            color: ${theme.text};
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        `;
+
+        copyButton.addEventListener('mouseenter', () => {
+            copyButton.style.transform = 'translateY(-2px)';
+        });
+
+        copyButton.addEventListener('mouseleave', () => {
+            copyButton.style.transform = 'translateY(0)';
+        });
+
+        copyButton.addEventListener('click', () => {
+            const textArea = document.createElement('textarea');
+            textArea.value = resultContent.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            showMessage('内容已复制到剪贴板');
+
+            copyButton.textContent = '已复制';
+            setTimeout(() => {
+                copyButton.textContent = '复制';
+            }, 2000);
+        });
+
+        const closeButton = document.createElement('button');
+        closeButton.textContent = '关闭';
+        closeButton.style.cssText = `
+            background: linear-gradient(135deg, #333333, #555555);
+            color: ${theme.text};
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        `;
+
+        closeButton.addEventListener('mouseenter', () => {
+            closeButton.style.transform = 'translateY(-2px)';
+        });
+
+        closeButton.addEventListener('mouseleave', () => {
+            closeButton.style.transform = 'translateY(0)';
+        });
+
+        closeButton.addEventListener('click', () => {
+            resultPanel.style.opacity = '0';
+            resultPanel.style.transform = 'translate(-50%, -50%) scale(0.9)';
+            setTimeout(() => {
+                if (resultPanel.parentNode) {
+                    resultPanel.parentNode.removeChild(resultPanel);
+                }
+            }, 300);
+        });
+
+        buttonContainer.appendChild(copyButton);
+        buttonContainer.appendChild(closeButton);
+
+        resultPanel.appendChild(resultTitle);
+        resultPanel.appendChild(resultContent);
+        resultPanel.appendChild(buttonContainer);
+
+        document.body.appendChild(resultPanel);
+
+        setTimeout(() => {
+            resultPanel.style.opacity = '1';
+            resultPanel.style.transform = 'translate(-50%, -50%) scale(1)';
+        }, 10);
+
+        resultPanel.addEventListener('click', (event) => {
+            if (event.target === resultPanel) {
+                resultPanel.style.opacity = '0';
+                resultPanel.style.transform = 'translate(-50%, -50%) scale(0.9)';
+                setTimeout(() => {
+                    if (resultPanel.parentNode) {
+                        resultPanel.parentNode.removeChild(resultPanel);
+                    }
+                }, 300);
+            }
+        });
+    }
+
+    if (document.readyState === 'complete') {
+        if (window.vm) {
+            initUI();
+        } else {
+            const observer = new MutationObserver(() => {
+                if (window.vm) {
+                    observer.disconnect();
+                    initUI();
+                }
+            });
+
+            observer.observe(document, {
+                childList: true,
+                subtree: true
+            });
+        }
+    } else {
+        window.addEventListener('load', () => {
+            if (window.vm) {
+                initUI();
+            } else {
+                const observer = new MutationObserver(() => {
+                    if (window.vm) {
+                        observer.disconnect();
+                        initUI();
+                    }
+                });
+
+                observer.observe(document, {
+                    childList: true,
+                    subtree: true
+                });
+            }
+        });
+    }
+
+    console.log('VerveSync Kit已加载，等待作品加载');
+})();
